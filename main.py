@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from typing import List
 from datetime import timedelta
 import os
@@ -8,8 +9,7 @@ from models import (
     UserLogin, UserCreate, User, Token,
     VehicleCreate, Vehicle,
     CargoCreate, Cargo,
-    LoadPlanCreate, LoadPlanAnalyze, LoadPlan, LoadPlanDetail,
-    PhysicsResult
+    LoadPlanCreate, LoadPlanDetail,
 )
 from database import db
 from auth import (
@@ -24,7 +24,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS
+# ================= CORS =================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,6 +34,35 @@ app.add_middleware(
 )
 
 physics_engine = PhysicsEngine()
+
+# ================= WEBSITE =================
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return """
+    <html>
+    <head>
+        <title>Load Balance AI</title>
+        <style>
+            body { font-family: Arial; background:#0f172a; color:white; text-align:center; }
+            .card { background:#111827; padding:30px; margin:50px auto; width:500px; border-radius:12px; }
+            a { color:#38bdf8; text-decoration:none; font-size:18px; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🚚 Load Balance AI</h1>
+            <p>Center-of-Gravity Aware Load Planning System</p>
+            <p><a href="/docs">📘 API Documentation</a></p>
+            <p><a href="/health">🟢 Health Check</a></p>
+        </div>
+    </body>
+    </html>
+    """
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return {}
 
 # ================= AUTH =================
 
@@ -51,11 +80,7 @@ async def login(user_login: UserLogin):
             expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
         )
 
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": user
-        }
+        return {"access_token": access_token, "token_type": "bearer", "user": user}
 
 
 @app.post("/auth/register", response_model=User)
@@ -84,11 +109,7 @@ async def me(current_user: dict = Depends(get_current_user)):
             "SELECT user_id,name,email,role,created_at FROM users WHERE user_id=%s",
             (int(current_user["sub"]),)
         )
-        user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        return user
-
+        return cursor.fetchone()
 
 # ================= VEHICLES =================
 
@@ -112,7 +133,6 @@ async def create_vehicle(vehicle: VehicleCreate, current_user: dict = Depends(ge
         )
         return cursor.fetchone()
 
-
 # ================= CARGO =================
 
 @app.get("/cargo", response_model=List[Cargo])
@@ -135,7 +155,6 @@ async def create_cargo(cargo: CargoCreate, current_user: dict = Depends(get_curr
         )
         return cursor.fetchone()
 
-
 # ================= LOAD PLAN =================
 
 @app.post("/load-plan/generate", response_model=LoadPlanDetail)
@@ -143,8 +162,6 @@ async def generate_plan(plan: LoadPlanCreate, current_user: dict = Depends(get_c
     with db.get_cursor() as cursor:
         cursor.execute("SELECT * FROM vehicles WHERE vehicle_id=%s", (plan.vehicle_id,))
         vehicle = cursor.fetchone()
-        if not vehicle:
-            raise HTTPException(status_code=404, detail="Vehicle not found")
 
         cursor.execute("SELECT * FROM cargo WHERE cargo_id = ANY(%s)", (plan.cargo_items,))
         cargo_items = cursor.fetchall()
@@ -169,10 +186,7 @@ async def generate_plan(plan: LoadPlanCreate, current_user: dict = Depends(get_c
                 "approved" if analysis["is_safe"] else "draft",
             )
         )
-
-        load_plan = cursor.fetchone()
-        return load_plan
-
+        return cursor.fetchone()
 
 # ================= HEALTH =================
 
@@ -180,13 +194,7 @@ async def generate_plan(plan: LoadPlanCreate, current_user: dict = Depends(get_c
 async def health():
     return {"status": "healthy"}
 
-
 # ================= START =================
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000))
-    )
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
